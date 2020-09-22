@@ -1,0 +1,115 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+public class WebPush : MonoBehaviour {
+
+    private GameObject Dog;
+    private Transform target;
+    private float x ,y , z, degree;
+    private string url2 = "http://";  //传输网址
+    private int count;           //实验计时器
+    private int status, Taskcount;         //实验状态,实验进度
+    private int TaskId = Skip2.dropvalue;             //任务id
+    private int TaskSchedule, taskNum;
+    private Text Text1, Text2, Text3, Text4;
+    private string[] TaskName= { "训练1", "训练2", "训练3" };
+    private Text ShowText;
+    // Use this for initialization
+
+    void Start () {
+        Dog = GameObject.Find("Dog");
+        target = GameObject.Find("Player").GetComponent<Transform>();
+        Text1 = GameObject.Find("Text1").GetComponent<Text>();
+        Text2 = GameObject.Find("Text2").GetComponent<Text>();
+        Text3 = GameObject.Find("Text3").GetComponent<Text>();
+        Text4 = GameObject.Find("Text4").GetComponent<Text>();
+        InvokeRepeating("TimeGame", 1f, 1f);
+        InvokeRepeating("GameOver", 5f, 5f);
+        Taskcount = TaskId+1;
+    }
+	
+	// Update is called once per frame
+	void Update () {
+        taskNum = 3;
+        if (ListenerSensor.C2H6O > 0)
+        {
+            Text4.text = "乙醇浓度：" + ListenerSensor.C2H6O + " / 500";
+        }
+
+        UIControl();
+    }
+
+
+
+
+
+    #region Correct 任务控制
+    public void OnClickBotton()
+    {
+        status = 3;
+        GameOver();
+        SceneManager.LoadScene(2);
+    }
+
+
+    void TimeGame()  //计时器
+    {
+        status = 1;
+        count++;
+        Text3.text = "训练计时：" + count;
+    }
+    void GameOver()
+    {
+        x = target.position.x;
+        y = target.position.y;
+        z = target.position.z;
+        degree = target.eulerAngles.x;
+        StartCoroutine(WorkingWeb());
+        
+    }
+    void UIControl()
+    {
+        Text1.text = "训练任务：" + TaskName[TaskId];
+        Text2.text = "任务进度：" + TaskSchedule + " / " + taskNum.ToString();
+        
+        if (TaskSchedule >= taskNum)
+        {
+            Taskcount = -1;
+        }
+    }
+    #endregion
+
+
+
+    #region Correct web端连接
+
+    IEnumerator WorkingWeb()    //web反馈
+    {
+        WWWForm form = new WWWForm();
+        form.AddField("x", x.ToString());
+        form.AddField("y", y.ToString());
+        form.AddField("z", z.ToString());
+        form.AddField("status", status); //实验状态
+        form.AddField("experid", TaskId);//实验id
+        form.AddField("degree", degree.ToString()); //使用者头部角度
+        WWW getData = new WWW(url2, form);
+        yield return getData;
+        if (getData.error != null)
+        {
+            //ShowText.text = getData.error;
+        }
+        else
+        {
+            //ShowText.text = getData.text;
+        }
+    }
+    #endregion
+
+
+}
+
+
+
