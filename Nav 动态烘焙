@@ -1,0 +1,58 @@
+using UnityEngine;
+using System.Collections;
+using UnityEngine.AI;
+
+public class Run : MonoBehaviour
+{
+    private UnityEngine.AI.NavMeshSurface surface;
+    private UnityEngine.AI.NavMeshAgent agent;//自动寻路锁定的物体  
+    private Transform Player;
+    private Transform Dog;
+    private Vector3[] path;//储存自动寻路起点、拐角、终点的坐标
+    private Vector3 path1;
+    private Transform target;
+    public  float newangle, oldangle,angle;
+    private Quaternion raw_rotation;
+    private double pathlength=0;
+    private double foot;
+    // Use this for initialization
+    void Start()
+    {
+        agent = GameObject.Find("Dog").GetComponent<UnityEngine.AI.NavMeshAgent>();
+        surface = GetComponent<NavMeshSurface>();
+        Dog = GameObject.Find("Dog").GetComponent<Transform>();
+        Player = GameObject.Find("Player").GetComponent<Transform>();
+        InvokeRepeating("TimeGame", 0.1f, 0.1f);
+    }
+    
+    // Update is called once per frame
+    void Update()
+    {
+        target = Player.transform;
+        agent.SetDestination(target.position);//终点的坐标
+        path = agent.path.corners;  //起点、拐角、终点的坐标
+        if (path.Length > 1)
+        {
+            path1 = path[1];
+        }
+        pathlength = agent.remainingDistance;
+        foot = pathlength / 0.3;
+
+        raw_rotation = Dog.rotation;
+        oldangle = Dog.rotation.eulerAngles.y;
+        Dog.LookAt(target.position);
+        newangle = Dog.rotation.eulerAngles.y;
+        Dog.rotation = raw_rotation;
+        angle = oldangle - newangle; //需要旋转的角度
+        if (angle > 180)
+        {
+            angle = -360 + angle;
+        }
+        UnityEngine.Debug.Log(angle);
+    }
+    void TimeGame()
+    {
+        surface.BuildNavMesh();
+        
+    }
+}
