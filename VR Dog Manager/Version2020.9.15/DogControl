@@ -1,0 +1,430 @@
+using UnityEngine;
+using UnityEngine.UI;
+using DG.Tweening;
+using System.IO.Ports;
+using System;
+using UnityEngine.SceneManagement;
+using System.Collections;
+using System.IO;
+using System.Globalization;
+using System.Diagnostics;
+
+public class DogCtrl : MonoBehaviour
+{
+    #region 场景物体
+    private Animation dog_animation;//动画器
+
+    public GameObject tracker;//追踪器 运行时其位置相当于机器狗的位置
+    public GameObject VRdog;//虚拟狗
+    private Text ShowText;//目标文本
+    private Text Text1;//训练任务名称
+    private Text Text2; //任务完成进度
+    private Text Text3;//倒计时
+    private Text Text4;//酒精浓度
+    private String[] TaskName ={"引导训练","遛狗训练","口语训练"};//训练任务集合
+    private int count, Taskcount = 0, TaskSchedule = 0; //计数器  count 计时器 Taskcount训练任务id  TaskSchedule训练进度
+    private Transform target;//玩家
+    private Transform trackerposition;//目标点
+    public static int TaskId = Skip2.dropvalue;//任务id
+    private AudioSource audioSource;//音频播放
+    private UnityEngine.AI.NavMeshAgent agent;//自动寻路锁定的物体  
+    private LineRenderer lineRenderer;//显示路径的自带插件
+    #endregion
+    #region DogMove3old 控制虚拟狗
+    private Vector3[] path;//储存自动寻路起点、拐角、终点的坐标
+    private Vector3 walkposition = new Vector3(); //引路目标点
+    private Vector3 playerposition = new Vector3();//玩家的坐标
+    public static float lookatangle;  
+    private float myangle;
+    private Quaternion raw_rotation;
+    [SerializeField] private double pathlength;//路径长度
+    public bool iswine = false;//酒精识别
+    private Vector3 tarposition; //最终需要到达的终点坐标
+    public static double foot1, foot2;//步数
+    public static float angle = 10, VRdogangle=0;//角度差
+    public static bool isWalking = false;//在走路
+    public static bool isRotating = false;//在旋转
+    public static bool isleft = false;//在左边 右转
+    public static bool isright = false;//在右边 左转  
+    public static bool isWorking = true;   //允许虚拟狗进行工作
+    public bool isSleep = false;//在睡觉
+    public bool isWayFinding = false;//在寻路
+    public bool isEND = false;//结束
+    public  String uuid;//uuid
+    private float  x , y, z;   //使用者方位
+    private float  degree;  //使用者头部角度
+    private int status=0;//0是开始 1正在运行 2 暂停 3结束
+    private string url2 = "http://localhost:8888/exper/json";  //传输网址
+    private string url1 = "http://localhost:8888/exper/uuid";
+    private float timeTaskcount;
+    #endregion
+    private int taskNum = 5;//当前的训练任务
+    private string Word = "";
+
+
+
+    #region Correct 矫正机器狗位置
+    public static bool isCorrect = false;//矫正状态
+    #endregion
+    void Awake()
+    {
+        agent = GetComponent<UnityEngine.AI.NavMeshAgent>();
+        lineRenderer = gameObject.GetComponent<LineRenderer>();
+        ShowText = GameObject.Find("Text").GetComponent<Text>();
+        Text1 = GameObject.Find("Text1").GetComponent<Text>();
+        Text2 = GameObject.Find("Text2").GetComponent<Text>();
+        Text3 = GameObject.Find("Text3").GetComponent<Text>();
+        Text4 = GameObject.Find("Text4").GetComponent<Text>();
+        audioSource = GetComponent<AudioSource>();
+        target = GameObject.Find("Player").GetComponent<Transform>();
+        //tracker = GameObject.Find("Tracker");
+        VRdog = GameObject.Find("dog");
+        dog_animation = GameObject.Find("Dog").GetComponent<Animation>();
+        Invoke("SetPosition", 0.5f);//将虚拟狗和机器狗的位置同步
+        StartCoroutine(GetWeb());
+    }
+
+    void Start()
+    {
+        InvokeRepeating("TimeGame", 1f, 1f);    
+        InvokeRepeating("GameOver", 5f, 5f);
+        Taskcount = TaskId;
+    }
+
+    void Update()
+    {
+        
+        //设置自动寻路的目标点
+        if (Word.Contains("跟") || Word.Contains("来") || Word.Contains("走"))
+        {
+            tarposition = new Vector3(target.position.x, -0.8f, target.position.z);
+        }
+        agent.SetDestination(tarposition);//终点的坐标
+        //储存自动寻路的点的坐标
+        path = agent.path.corners;  //起点、拐角、终点的坐标
+                                    //线段整体y轴加1个单位
+        for (int i = 0; i < path.Length; i++)
+        {
+            path[i] = new Vector3(path[i].x, -0.8f, path[i].z);
+        }
+        //path[0]为狗的坐标，path[1]为第一个拐角或者终点的坐标实时调整，一直使用path[i]即可找到终点坐标，所以只需用path[1]作为全程的路径点
+        //设置定点的数量
+        lineRenderer.SetVertexCount(path.Length);
+        for (int i = 0; i < path.Length; i++)
+        {
+            //设置线段的路径
+            lineRenderer.SetPosition(i, path[i]);
+        }
+
+        if (ListenerSensor.C2H6O > 0)
+        {
+            Text4.text = "乙醇浓度：" + ListenerSensor.C2H6O + " / 500";
+            if (ListenerSensor.C2H6O > 500)
+            {
+                iswine = true;
+            }
+        }
+        UIControl();
+        AnimControl();
+        
+    }
+   
+    
+    #region DogMove3old 控制虚拟狗
+
+    void AnimControl()
+    {
+        try
+        {
+            if (Word.Contains("跟") || Word.Contains("来") || Word.Contains("走"))
+            {
+                dog_animation.CrossFade("Walk",0.5f);
+                pathlength = Vector3.Distance(tracker.transform.position, transform.position);// 剩余路径距离
+                foot1 = pathlength / 1.5; //剩余步数
+                if (foot1 < 7 && foot1 > 2) 
+                {
+                    foot2 = foot1;
+                }
+                else
+                {
+                    foot2 = 6;
+                }
+                //基于当前角速度一帧内最大的旋转角度
+                raw_rotation = tracker.transform.rotation;
+                myangle = tracker.transform.eulerAngles.y;
+                tracker.transform.LookAt(VRdog.transform.position);
+                lookatangle = tracker.transform.eulerAngles.y;
+                tracker.transform.rotation = raw_rotation;
+                angle = myangle - lookatangle; //需要旋转的角度
+
+                raw_rotation = transform.rotation;
+                myangle = transform.eulerAngles.y;
+                transform.LookAt(path[1]);
+                lookatangle = transform.eulerAngles.y;
+                transform.rotation = raw_rotation;
+                VRdogangle = myangle - lookatangle; //需要旋转的角度
+                if (angle < 0)
+                {
+                    angle = -angle;
+                }
+                if (angle > 180)
+                {
+                    angle = 360 - angle;
+                }
+                if (VRdogangle < 0)
+                {
+                    VRdogangle = -VRdogangle;
+                }
+                if (VRdogangle > 180)
+                {
+                    VRdogangle = 360 - VRdogangle;
+                }
+                if (VRdogangle > 2f)     //判断是否到是否需要转弯   本处需要判断狗的旋转和行走、矫正是否完成，虚拟狗完成旋转需要等待实体狗旋转，完成行走需要等待实体狗行走和矫正；
+                {
+
+                    if ((Vector3.Distance(transform.position, path[1]) < 1f) && (Vector3.Distance(transform.position, tarposition) >2f))
+                    {
+                        //当拐弯点离狗小于1f时，先不进行拐弯，避免抽搐，发送指令进行行走，具体步数计算而定
+                        isWalking = true;
+                        isRotating = false;
+                    }
+                    else  //发送指令进行拐弯
+                    {
+
+                        isRotating = true;
+                        isWalking = false;
+                    }
+                }
+                else   //发送指令进行行走
+                {
+                    isWorking = false;
+                    if (isCorrect == false)   //如果实体狗完成矫正
+                    {
+                        isWorking = true;
+                    }
+                    isWalking = true;
+                    isRotating = false;
+                }
+                RotateAngle();
+                FollowingPlayer();
+                if (angle > 2f)
+                {
+                    isRotating = true;
+                    isWalking = false;
+                }
+                else
+                {
+                    isWalking = true;
+                    isRotating = false;
+                }
+                //实体狗使用
+                if (Vector3.Cross(Vector3.forward, tracker.transform.position).y > 0)         //右方 
+                {
+                    UnityEngine.Debug.Log("右方");
+                    isright = true;
+                    isleft = false;
+                }
+                else
+                {
+                    UnityEngine.Debug.Log("左方");
+                    isleft = true;
+                    isright = false;
+                }
+
+
+            }
+            else if (Word.Contains("坐"))
+            {
+                dog_animation.CrossFade("Idle Seating", 0.5f);
+            }
+            if (ShowText.text.Contains("来")|| ShowText.text.Contains("跟") || ShowText.text.Contains("坐"))
+            {
+                Word = ShowText.text;
+            }
+            
+            if (ListenerSensor.isTouched == 1)  //触摸反馈
+            {
+                //audioSource.Play();
+                dog_animation.CrossFade("Howing", 0.5f);
+            }
+            else
+            {
+                dog_animation.CrossFade("Idle Seating", 0.5f);
+            }
+            if (iswine)                    //对酒的反应
+            {
+                dog_animation.CrossFade("Attack Two Paw", 0.5f);
+                audioSource.Play();
+                iswine = false;
+                timeTaskcount = 0;
+            }
+            else                   //仅一次
+            {
+                if (timeTaskcount == 1)
+                {
+                    dog_animation.CrossFade("Idle Seating", 0.5f);
+                }
+            }
+        }
+        catch(Exception ex)
+        {
+
+        }
+    }
+    void RotateAngle()
+    {
+        if (isRotating)
+        {
+            dog_animation.CrossFade("Idle", 0.5f);
+            //虚拟狗使用
+            if (Vector3.Dot(transform.forward, path[1]) > 0)//点积公式计算相对位置 
+            {
+                //在前方
+            }
+            else
+            {
+                //在后方
+            }
+
+            
+        }
+        
+    }
+    void FollowingPlayer()
+    {
+        //SetCorrect();//判断当前机器狗位置是否需要矫正
+        if (isWalking && isWorking)
+        {
+            if ((Vector3.Distance(VRdog.transform.position, tarposition)) < 2f 
+                    || ((Vector3.Distance(path[1], transform.position) <= 0.5f) && (Vector3.Distance(path[1], tarposition) <= 1f))||isCorrect) //距离小于1f 在矫正
+            {
+                dog_animation.CrossFade("Idle", 0.5f);//取消狗的行走状态
+                isWalking = false;               
+            }
+            else
+            {
+                dog_animation.CrossFade("Walk", 0.5f);
+            }
+        }
+        
+    }
+    #endregion
+
+    #region Correct 任务控制
+    public void OnClickBtn()
+    {
+        isEND = true;
+    }
+    
+
+    void TimeGame()  //计时器
+    {
+        timeTaskcount++;
+        status = 1;
+        count++;
+        Text3.text = "训练计时：" + count;
+    }
+    void GameOver()
+    {
+        x = target.position.x;
+        y = target.position.y;
+        z = target.position.z;
+        degree = target.eulerAngles.x;
+        if (Taskcount < 0 || ShowText.text.Contains("结束") || isEND)
+        {
+            status = 3;
+            StartCoroutine(WorkingWeb());
+            SceneManager.LoadScene(2);
+        }
+        else
+        {
+            StartCoroutine(WorkingWeb());
+        }
+    }
+    void UIControl()
+    {
+        Text1.text = "训练任务：" + TaskName[TaskId];
+        Text2.text = "任务进度：" + TaskSchedule + " / " + taskNum.ToString();
+        if (Taskcount == 0 && isWayFinding == false)           //任务1  引导训练
+        {
+
+        }
+        else if (Taskcount == 1)
+        {
+            
+        }
+        else if ( Taskcount == 2)
+        {
+            
+        }
+        if (TaskSchedule >= taskNum)
+        {
+            Taskcount = -1;
+            isWayFinding = false;
+        }
+    }
+    #endregion 
+
+    #region Correct web端连接
+    IEnumerator WorkingWeb()    //web反馈
+    {
+        WWWForm form = new WWWForm();
+        form.AddField("experuuid", uuid); //登录id
+        form.AddField("x", x.ToString());
+        form.AddField("y", y.ToString());
+        form.AddField("z", z.ToString());
+        form.AddField("status", status); //实验状态
+        form.AddField("experid", TaskId + 1);//实验id
+        form.AddField("degree", degree.ToString()); //使用者头部角度
+        WWW getData = new WWW(url2, form);
+        yield return getData;
+        if (getData.error != null)
+        {
+            //ShowText.text = getData.error;
+        }
+        else
+        {
+            //ShowText.text = getData.text;
+        }
+    }
+    IEnumerator GetWeb()
+    {
+        WWWForm form = new WWWForm();
+        WWW getData = new WWW(url1, form);
+        yield return getData;
+        if (getData.error != null)
+        {
+            uuid = getData.error;
+        }
+        else
+        {
+            uuid = getData.text;
+
+        }
+    }
+    #endregion 
+
+    #region Correct 矫正机器狗位置
+
+    /// <summary>
+    /// 求得a和b的距离
+    /// </summary>
+    /// <returns>距离</returns>
+    private float GetDistance(GameObject a, GameObject b)
+    {
+        float dist = Vector2.Distance(a.transform.position, b.transform.position);
+        return dist;
+    }
+
+    /// <summary>
+    /// 同步虚拟机器狗的位置
+    /// </summary>
+    private void SetPosition()
+    {
+        VRdog.transform.position = tracker.transform.position;//将虚拟狗和机器狗的位置同步
+        VRdog.transform.rotation = tracker.transform.rotation;//将虚拟狗和机器狗的旋转方向同步
+    }
+
+    #endregion
+
+}
