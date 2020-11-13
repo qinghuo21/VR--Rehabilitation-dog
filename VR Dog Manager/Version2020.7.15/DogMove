@@ -1,0 +1,169 @@
+using UnityEngine;
+using UnityEngine.AI;
+using UnityEngine.UI;
+using DG.Tweening;
+public class Dogmove3 : MonoBehaviour
+{
+    public static float angle;//旋转角度差
+    public static double foot;//步数
+    public static bool isWalking = false;//判断虚拟狗是否在走路
+    public static bool isRotating = false;//判断虚拟狗是否在旋转
+    public static bool isLeftRotating, isRightRotating;//左转右转
+
+    public Transform target;//玩家
+    //public float rotationtime;
+    
+    private Text ShowText;           //目标文本
+    private Animator anim;//动画器
+    private NavMeshAgent agent;//自动寻路锁定的物体
+    private LineRenderer lineRenderer;//显示路径的自带插件
+    private Vector3[] path;//储存自动寻路起点、拐角、终点的坐标
+    private double pathlength;//路径长度
+    private float lookatangle;
+    private float myangle;//当前角度
+    private Quaternion raw_rotation;
+
+    void Start()
+    {
+        agent = GetComponent<NavMeshAgent>();
+        lineRenderer = gameObject.GetComponent<LineRenderer>();
+        ShowText = GameObject.Find("Text").GetComponent<Text>();
+        anim = GameObject.Find("dog").GetComponent<Animator>();
+        target = GameObject.Find("Player").GetComponent<Transform>();
+    }
+
+    [System.Obsolete]
+    void Update()
+    {
+        agent.SetDestination(target.position);//将终点坐标设为玩家的坐标 
+        path = agent.path.corners;  //储存自动寻路起点、拐角、终点的坐标
+
+        for (int i = 0; i < path.Length; i++)
+        {
+            //path[0]为狗的坐标，path[1]为第一个拐角或者终点的坐标实时调整，一直使用path[i]即可找到终点坐标，所以只需用path[1]作为全程的路径点
+            path[i] = path[i] + new Vector3(0, 0, 0);//线段整体y轴加1个单位
+        }
+        lineRenderer.SetVertexCount(path.Length);//设置定点的数量
+
+        for (int i = 0; i < path.Length; i++)
+        {
+            lineRenderer.SetPosition(i, path[i]);//设置线段的路径
+        }
+        AnimatorCtrl();
+
+    }
+
+    void AnimatorCtrl()
+    {
+        if (ShowText.text.Contains("跟") || ShowText.text.Contains("走") || ShowText.text.Contains("来"))
+        {
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Sleep", 0);
+            anim.SetInteger("END", 0);
+            pathlength = agent.remainingDistance - 2f;// 剩余路径距离
+            foot = pathlength / 0.3; //剩余步数            
+            
+            raw_rotation = transform.rotation;//基于当前角速度一帧内最大的旋转角度
+            myangle = transform.eulerAngles.y;
+            //transform.LookAt(path[1]);
+            lookatangle = transform.eulerAngles.y;
+            transform.rotation = raw_rotation;
+            angle = myangle - lookatangle; //需要旋转的角度
+            if (angle < 0)
+            {
+                angle = -angle;
+            }
+            else if(angle > 1f)                //判断是否到是否需要转弯
+            {
+                isRotating = true;
+                isWalking = false;
+            }
+            else
+            {
+                isWalking = true;
+                isRotating = false;
+            }
+            RotationAngle();
+            Following();
+        }
+        else if (ShowText.text.Contains("坐"))
+        {
+            anim.SetInteger("END", 1);
+            anim.SetInteger("Sleep", 0);
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Walk", 0);
+        }
+        else if(ShowText.text.Contains("抬"))
+        {
+            anim.SetInteger("END", 1);
+            anim.SetInteger("Walk", 0);
+            anim.SetInteger("Sleep", 0);
+            anim.SetInteger("Howing", 1);
+        }
+        else if (ShowText.text.Contains("睡"))
+        {
+            anim.SetInteger("END", 1);
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Walk", 0);
+            anim.SetInteger("Sleep", 1);
+        }
+        else if (ShowText.text.Contains("起"))
+        {
+            anim.SetInteger("Sleep", 0);
+        }
+        else
+        {
+            anim.SetInteger("END",1);
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Walk", 0);
+            anim.SetInteger("Sleep", 0);
+        }
+    }
+
+    void RotationAngle()
+    {
+        if (isRotating)
+        {
+            anim.SetInteger("Walk", 0);
+            //虚拟狗使用
+            if (Vector3.Dot(transform.forward, path[1]) > 0)//点积公式计算相对位置 
+            {
+                transform.DOLookAt(path[1], 2);
+                //在前方
+            }
+            else
+            {
+                transform.DOLookAt(path[1], 4);
+                //在后方
+            }
+
+            //实体狗使用
+            if (Vector3.Cross(transform.forward, path[1]).y > 0)         //右方 
+            {
+                //在右方，向左边旋转,给实体狗发信息一直左转即可  
+                isLeftRotating = true;
+            }
+            else                                                         //左方 
+            {
+                //在左方，向右边旋转，给实体狗发信息一直右转即可
+                isRightRotating = true;
+            }
+        }
+        
+    }
+
+    void Following()
+    {
+        if (isWalking)
+        {
+            if (Vector3.Distance(transform.position, target.position) < 2f)
+            {
+                anim.SetInteger("Walk", 0);
+            }
+            else
+            {
+                anim.SetInteger("Walk", 1);
+            }
+        }
+    }
+}
