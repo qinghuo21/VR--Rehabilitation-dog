@@ -1,0 +1,545 @@
+using UnityEngine;
+using UnityEngine.UI;
+using DG.Tweening;
+using System.IO.Ports;
+using System;
+
+public class DogCtrlOld : MonoBehaviour
+{
+    #region 场景物体
+    public Animator anim;//动画器
+
+    private GameObject tracker;//追踪器 运行时其位置相当于机器狗的位置
+    private GameObject VRdog;//虚拟狗
+    private GameObject player;//玩家
+    private Text ShowText;//目标文本
+    private Transform target;//玩家
+    private AudioSource audioSource;//音频播放
+    private UnityEngine.AI.NavMeshAgent agent;//自动寻路锁定的物体  
+    private LineRenderer lineRenderer;//显示路径的自带插件
+    #endregion
+    #region DogMove3old 控制虚拟狗
+    private Vector3[] path;//储存自动寻路起点、拐角、终点的坐标
+    private float lookatangle;
+    private float myangle;
+    private Quaternion raw_rotation;
+    [SerializeField] private double pathlength;//路径长度
+    private bool iswine = false;//酒精识别
+    private Vector3 tarposition; //最终需要到达的终点坐标
+    public double foot1, foot2;//步数
+    public float angle = 10;//角度差
+    public bool isWalking = false;//在走路
+    public bool isRotating = false;//在旋转
+    public bool isleft = false;//在左边 右转
+    public bool isright = false;//在右边 左转  
+    public bool isWorking = true;   //允许虚拟狗进行工作
+    public bool isSleep = false;//在睡觉
+    #endregion
+    #region Connect 控制机器狗
+    [SerializeField] private string data = "";//需要发送给串口的数据
+    private SerialPort serialPort;//串口 
+    private string serialHead = "FF 14 ";// 帧头FF 帧总长度14
+    [SerializeField] private int serialNumber = 0; //[1]帧序号
+    private int MODE = 1;//[2]运动模式 0爬行 1小跑 2平移
+    private int data_machine;//[3]硬件狗的运动数据
+    private int checkNum;//[4]校验位 
+    private string serialTail = " FD ";//帧尾FD
+    #endregion
+    #region Correct 矫正机器狗位置
+    public static bool isCorrect = false;//矫正状态
+    #endregion
+    void Awake()
+    {
+        agent = GetComponent<UnityEngine.AI.NavMeshAgent>();
+        lineRenderer = gameObject.GetComponent<LineRenderer>();
+        ShowText = GameObject.Find("Text").GetComponent<Text>();
+        audioSource = GetComponent<AudioSource>();
+        target = GameObject.Find("Player").GetComponent<Transform>();
+        tracker = GameObject.Find("Tracker");
+        VRdog = GameObject.Find("dog");
+        player = GameObject.Find("Player");
+        Invoke("SetPosition", 0.2f);//将虚拟狗和机器狗的位置同步
+        //InvokeRepeating("SetUpdate", 0.2f, 0.5f);
+
+    }
+    void Start()
+    {
+        serialPort = Listener.serialPort;
+        //InvokeRepeating("SendData", 0, 3f);
+    }
+    void Update()
+    {
+        //设置自动寻路的目标点
+        agent.SetDestination(target.position);//终点的坐标
+        //储存自动寻路的点的坐标
+        path = agent.path.corners;  //起点、拐角、终点的坐标
+                                    //线段整体y轴加1个单位
+        for (int i = 0; i < path.Length; i++)
+        {
+            path[i] = path[i] + new Vector3(0, 0, 0);
+        }
+        path[1] = new Vector3(path[1].x, -0.8f, path[1].z);
+        tarposition = new Vector3(target.position.x, -0.8f, target.position.z);
+        //path[0]为狗的坐标，path[1]为第一个拐角或者终点的坐标实时调整，一直使用path[i]即可找到终点坐标，所以只需用path[1]作为全程的路径点
+        //设置定点的数量
+        lineRenderer.SetVertexCount(path.Length);
+        for (int i = 0; i < path.Length; i++)
+        {
+            //设置线段的路径
+            lineRenderer.SetPosition(i, path[i]);
+        }
+        AnimControl();
+    }
+
+    #region DogMove3old 控制虚拟狗
+    /// <summary>
+    /// 原update里的语句 移到了该普通方法里 用invoke调用
+    /// </summary>
+    private void SetUpdate()
+    {
+        
+    }
+    void AnimControl()
+    {
+        if (ShowText.text.Contains("跟") || ShowText.text.Contains("走") || ShowText.text.Contains("来"))
+        {
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Sleep", 0);
+            anim.SetInteger("END", 0);
+            pathlength = Vector3.Distance(transform.position, path[1]);// 剩余路径距离
+            foot1 = pathlength / 0.3; //剩余步数
+            if (foot1 < 5)
+            {
+                foot2 = foot1;
+            }
+            else
+            {
+                foot2 = 5;
+            }
+            //基于当前角速度一帧内最大的旋转角度
+            raw_rotation = transform.rotation;
+            myangle = transform.eulerAngles.y;
+            transform.LookAt(path[1]);
+            lookatangle = transform.eulerAngles.y;
+            transform.rotation = raw_rotation;
+            angle = myangle - lookatangle; //需要旋转的角度
+            if (angle < 0)
+            {
+                angle = -angle;
+            }
+            if (angle > 180)
+            {
+                angle = 360 - angle;
+            }
+            if (angle > 2f)    //判断是否到是否需要转弯   本处需要判断狗的旋转和行走、矫正是否完成，虚拟狗完成旋转需要等待实体狗旋转，完成行走需要等待实体狗行走和矫正；
+            {
+
+                if (Vector3.Distance(transform.position, path[1]) < 1f)
+                {
+                    //当拐弯点离狗小于1f时，先不进行拐弯，避免抽搐，发送指令进行行走，具体步数计算而定
+                    isWalking = true;
+                    isRotating = false;
+                }
+                else  //发送指令进行拐弯
+                {
+                    
+                    isRotating = true;
+                    isWalking = false;
+
+                }
+            }
+            else   //发送指令进行行走
+            {
+                isWorking = false;
+                if (isCorrect == false)   //如果实体狗完成矫正
+                {
+                    isWorking = true;
+                }
+                isWalking = true;
+                isRotating = false;
+            }
+            RotateAngle();
+            FollowingPlayer();
+        }
+        else if (ShowText.text.Contains("坐"))
+        {
+            anim.SetInteger("END", 1);
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Walk", 0);
+        }
+        else if(ShowText.text.Contains("抬"))
+        {
+            anim.SetInteger("END", 1);
+            anim.SetInteger("Walk", 0);
+            anim.SetInteger("Howing", 1);
+        }
+        else if (ShowText.text.Contains("睡"))
+        {
+            anim.SetInteger("END", 1);
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Walk", 0);
+            anim.SetInteger("Sleep", 1);
+            isSleep = true;
+        }
+        else if (ShowText.text.Contains("起"))
+        {
+            anim.SetInteger("Sleep", 0);
+            isSleep = false;
+        }
+        else if (ShowText.text.Contains("前进"))
+        {
+            if (isSleep == false)
+            {
+                anim.SetInteger("Go", 1);
+                ShowText.text = "Go Ahead发送数据 FF 14 003 1 118 0 FD成功";
+            }
+            else
+            {
+                ShowText.text = "需要起床 ";
+            }
+        }
+        else if (ShowText.text.Contains("左"))
+        {
+            if (isSleep == false)
+            {
+                anim.SetInteger("END", 1);
+                anim.SetInteger("Howing", 0);
+                anim.SetInteger("Walk", 0);
+                anim.SetInteger("Left", 1);
+                anim.SetInteger("Right", 0);
+                ShowText.text = "Turn Left发送数据 FF 14 001 1 235 0 FD成功";
+            }
+            else
+            {
+                ShowText.text = "需要起床 ";
+            }
+        }
+        else if (ShowText.text.Contains("右"))
+        {
+            if (isSleep == false)
+            {
+                anim.SetInteger("END", 1);
+                anim.SetInteger("Howing", 0);
+                anim.SetInteger("Walk", 0);
+                anim.SetInteger("Left", 0);
+                anim.SetInteger("Right", 1);
+                ShowText.text = "Turn Right发送数据 FF 14 002 1 225 9 FD 成功";
+            }
+            else
+            {
+                ShowText.text = "需要起床 ";
+            }
+        }
+        else if (ShowText.text.Contains("Turn") || ShowText.text.Contains("Go"))
+        {
+            anim.SetInteger("Right", 0);
+            anim.SetInteger("Left", 0);
+            anim.SetInteger("Go", 0);
+        }
+        else
+        {
+            anim.SetInteger("END",1);
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Walk", 0);
+        }
+        if (iswine == true)                    //对酒的反应
+        {
+            anim.SetInteger("END", 1);
+            anim.SetInteger("Howing", 0);
+            anim.SetInteger("Walk", 0);
+            anim.SetInteger("wine", 1);
+            audioSource.Play();
+            iswine = false;
+        }
+        else                   //仅一次
+        {
+            anim.SetInteger("wine", 0);
+        }
+    }
+    void RotateAngle()
+    {
+        if (isRotating)
+        {
+            anim.SetInteger("Walk", 0);
+            //虚拟狗使用
+            if (Vector3.Dot(transform.forward, path[1]) > 0)//点积公式计算相对位置 
+            {
+                transform.DOLookAt(path[1], 2);
+                //在前方
+            }
+            else
+            {
+                transform.DOLookAt(path[1], 4);
+                //在后方
+            }
+
+            //实体狗使用
+            if (Vector3.Cross(transform.forward, path[1]).y > 0)         //右方 
+            {
+                //在右方，向左边旋转,给实体狗发信息一直左转即可  
+                isright = true;
+                isleft = false;
+            }
+            else                                                         //左方 
+            {
+                //在左方，向右边旋转，给实体狗发信息一直右转即可
+                isleft = true;
+                isright = false;
+            }
+        }
+        
+    }
+    void FollowingPlayer()
+    {
+        //SetCorrect();//判断当前机器狗位置是否需要矫正
+        if (isWalking && isWorking)
+        {
+            if (Vector3.Distance(VRdog.transform.position, tarposition) < 1.5f || isCorrect)//距离小于1.5f 在矫正
+            {
+                anim.SetInteger("Walk", 0);//取消狗的行走状态
+                isWalking = false;               
+            }
+            else
+            {
+                anim.SetInteger("Walk", 1);
+            }
+        }
+        
+    }
+    #endregion 
+
+    #region Connect 处理与发送数据 控制机器狗
+    /// <summary>
+    /// 发送数据
+    /// </summary>
+    private void SendData()
+    {
+        if (isWalking || isRotating || isCorrect)
+        {
+            if (ShowText.text.Contains("跟") || ShowText.text.Contains("走") || ShowText.text.Contains("来"))
+            {//当使用者发出关键字指令时 向机器狗发送数据
+                data = ConvertData();
+                Debug.Log("SendData" + data);
+                serialPort.Write(data);
+                Debug.Log("发送成功" + data);
+                //StartCoroutine(WaitAndSend(time));
+            }
+        }
+        //SetCorrect();
+        //if (isCorrect)//如果此时是矫正状态 向机器狗发送数据 第一次是发送旋转角度 第二次是发送走路步数
+        //{
+        //    data = ConvertData();
+        //    serialPort.WriteLine(data);
+        //    SetCorrect();
+        //}
+    }
+
+    /// <summary>
+    /// 把int数据类型统一成字符类型并返回
+    /// </summary>
+    /// <returns>返回string型数据</returns>
+    private string ConvertData()
+    {
+        string data = "", serialNumber, moveMode, data_machine, checkNum;
+        serialNumber = SerialNumberInc();//[1]
+        moveMode = MODE.ToString();//[2]
+        data_machine = DataMachineSet();//[3]
+        checkNum = CheckNumCalculator();//[4]
+        if (serialNumber != "" && moveMode != "" && data_machine != "" && checkNum != "")
+            data = serialHead + serialNumber + " " + moveMode + " " + data_machine + " " + checkNum + serialTail;
+        else
+            Debug.Log("有空值");
+        return data;
+    }
+
+    /// <summary>
+    /// [1]帧序号自增
+    /// </summary>
+    /// 每发送一次数据 帧序号++ 并对1000取余 每次发送的帧序号不能重复 否则丢弃该帧 返回error_Serial_Number
+    /// <param name="serialNumber"></param>
+    /// <returns>返回string型的3位帧序号</returns>
+    private string SerialNumberInc()
+    {
+        string temp = "";
+        if(isWalking || isRotating || isCorrect)
+        {
+            serialNumber = (serialNumber + 1) % 1000;
+            temp = string.Format("{0:D3}", serialNumber);
+            //Debug.Log("帧序号：" + temp); 
+        }
+        return temp;
+    }
+
+    /// <summary>
+    /// [3]机器狗的具体运动方式       前进/后退 左转/右转
+    /// </summary>
+    /// <returns>string型的3位字符</returns>
+    private string DataMachineSet()
+    {
+        int steps;//传给机器狗的步数
+        int eulerAngle;//旋转角度
+        int correctCtrl = 0;
+        if (isWalking && !isRotating)//如果VR狗正在移动
+        //if (isWalking && correctCtrl == 0)
+        {
+            //correctCtrl = 1;
+            steps = CalculatorSteps();//计算机器狗需要走的步数
+            //steps = 120 - Convert.ToInt32(foot2);
+            if (120 - steps > 0 && 120 - steps < 21)
+                //Debug.Log("DataMachineSet步数：" + steps);
+            return steps.ToString();
+        }
+        else if (isRotating && !isWalking)//如果VR狗正在旋转
+        //else if (isWalking && correctCtrl ==1)
+        {
+            //correctCtrl = 0;
+            eulerAngle = CalculatorRotation();//计算需要旋转的角度
+            //eulerAngle = CalculatorRotation();//计算机器狗需要旋转的角度 200-260
+            //if (eulerAngle > 200 && eulerAngle < 260)
+                //Debug.Log("DataMachineSet旋转角度：" + eulerAngle);
+            return eulerAngle.ToString();
+        }
+        //还可以加上这些动作 为了降低难度先不加了
+        //400低头 401抬头 402左倾 403右顷 404左扭 405右扭  406复原 
+        //else if (isCorrect)//处于矫正状态 第一次发送旋转值 第二次发送步值
+        //{
+        //    eulerAngle = CalculatorRotation();
+        //    steps = CalculatorSteps();
+        //    if (correctCtrl == 0)//第一次发送
+        //    {
+        //        correctCtrl = 1;
+        //        return eulerAngle.ToString();
+        //    }
+        //    else//第二次发送
+        //    {
+        //        correctCtrl = 0;
+        //        return steps.ToString();
+        //    }               
+        //}
+        else
+        {
+            Debug.Log("DataMachineSet Error isWalking && isRotating!");
+        }
+        return "";
+    }
+
+    /// <summary>
+    /// [3.1]将虚拟狗的步数转化为实体狗的步数
+    /// </summary>
+    /// <returns>步数</returns>
+    private int CalculatorSteps()
+    {
+        int steps = 120;
+        float dist = GetDistance(VRdog, player);
+        int foot = Convert.ToInt32(dist / 0.3);
+        switch (MODE.ToString())
+        {
+            case "0"://爬行模式 步数X 实际步数=|120-X| ∈[120,140]表前进 ∈[100,120]表后退//这里先不采用狗的爬行模式
+                steps += foot;
+                break;
+
+            case "1"://小跑模式 步数X 实际步数=|120-X| ∈[100,120]表前进 ∈[120,140]表后退//这里只采用狗的前进模式
+                steps -= foot;
+                break;
+
+            case "2"://平移模式 100~140 表示向右向左平移（左负右正）//这里也先不采用狗的平移模式
+                break;
+        }
+        //Debug.Log("步数" + steps);
+        return steps;
+    }
+
+    /// <summary>
+    /// [3.2]将虚拟狗的旋转角度转化为实体狗的转弯角度
+    /// </summary>
+    /// <returns>转弯角度</returns>
+    private int CalculatorRotation()
+    {//转弯区间[200,260] 实际转角为x-230 235（225）表示右转（左转）90度 230原地不动
+        
+        int InitAngle = 230, angleInt;
+        if (!isCorrect)//非矫正状态时 计算虚拟狗和玩家的角度差
+            angleInt = Convert.ToInt32(GetRotation(VRdog, player));
+        else//矫正状态时 计算虚拟狗和机器狗的角度差
+            angleInt = Convert.ToInt32(GetRotation(VRdog, tracker));
+        if(angleInt != 0)
+        {
+            if (isright && !isleft)//右边 左转
+            {
+                InitAngle -= angleInt;
+            }
+            else if (isleft && !isright)//左边 右转
+            {
+                InitAngle += angleInt;
+            }
+            else
+            {
+                Debug.Log("Error isLRotating && isRRotating!");
+            }
+        }
+        return InitAngle;
+    }
+
+    /// <summary>
+    /// [4]计算校验位
+    /// </summary>
+    /// 出错丢弃该帧 返回error_Check；
+    /// <returns>string型的1位字符</returns>
+    private string CheckNumCalculator()
+    {
+        int dataMachine = Convert.ToInt32(DataMachineSet());
+        int g = dataMachine % 10;//个位
+        int s = dataMachine / 10 % 10;//十位
+        int b = dataMachine / 100;//百位
+        int checkNum = (g + s + b) % 10; //三个数字相加后 % 10 得到1位的校验位
+        //Debug.Log("校验位:" + checkNum);
+        return checkNum.ToString();
+    }
+    #endregion
+   
+    #region Correct 矫正机器狗位置
+    /// <summary>
+    /// 设置当前的矫正状态逻辑值
+    /// </summary>
+    private void SetCorrect()
+    {
+        float dist = GetDistance(VRdog, tracker);//比较当前虚拟狗和机器狗的距离之差
+        float dogangle = tracker.transform.eulerAngles.y - lookatangle;
+        if (dist > 0.5f || dogangle > 2f ) //如果距离过大 且虚拟狗此时没有移动 则需要矫正
+        {
+            isCorrect = true;
+        }
+    }
+
+    /// <summary>
+    /// 同步虚拟机器狗的位置
+    /// </summary>
+    private void SetPosition()
+    {
+        VRdog.transform.position = tracker.transform.position;//将虚拟狗和机器狗的位置同步
+        VRdog.transform.rotation = tracker.transform.rotation;//将虚拟狗和机器狗的旋转方向同步
+        //Debug.Log("已同步位置");
+    }
+
+    /// <summary>
+    /// 求得a和b的距离
+    /// </summary>
+    /// <returns>距离</returns>
+    private float GetDistance(GameObject a, GameObject b)
+    {
+        float dist = Vector2.Distance(a.transform.position, b.transform.position);
+        return dist;
+    }
+
+    /// <summary>
+    /// 求得a和b的角度
+    /// </summary>
+    /// <param name="a"></param>
+    /// <param name="b"></param>
+    /// <returns></returns>
+    private double GetRotation(GameObject a, GameObject b)
+    {//对于机器狗来说 发送单位旋转数据1 相当于转18°需要将虚拟狗的旋转数据除以18后 再发送给机器狗
+        double angle = Vector3.Angle(a.transform.position, b.transform.position) / 18.0;//角度
+        return angle;
+    }
+    #endregion
+}
