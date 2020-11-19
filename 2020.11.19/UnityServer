@@ -1,0 +1,186 @@
+using UnityEngine;
+using System.Collections;
+using Pathfinding;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Security.Policy;
+using UnityEngine.UI;
+using UnityEngine.SceneManagement;
+
+public class UnityServer : MonoBehaviour
+{
+
+    public enum Pattern
+    {
+        Idle,
+        Task,
+        //END
+    }
+
+    //模式状态相关
+    public  Pattern NowPattern = Pattern.Idle;
+    //RobotClaw NowRobotClaw = RobotClaw.Idle;
+    //测试任务开启
+    public bool istask=false;
+    //public bool isClawWorking = false,isClawEnd = false; 
+    public static bool RobotShouldWork;
+    //限制进入任务模式
+    private bool isFristInto=true;
+    //跨脚本
+    private RobotControl robotcontrol;
+    //语音识别文本
+    private Text RealTimeText;
+
+    #region Web端
+    private Transform User;
+    private float x, y, z, degree;
+    private string url = "";  //传输网址
+    private int count;           //实验计时器
+    private int status, Taskcount;         //实验状态,实验进度
+    private int PattendId = Skip2.dropvalue + 1;             //任务id
+    private int TaskSchedule, taskNum;
+    public Text[] Text;
+    private Text ShowText;
+    private string[] TaskName = { "引导训练", "遛狗训练", "口语训练" };
+    #endregion
+
+    void Start()
+    {
+        User = GameObject.Find("User").GetComponent<Transform>();
+        RealTimeText = GameObject.Find("Realtime").GetComponent<Text>();
+        InvokeRepeating("TimeGame", 1f, 1f);
+        InvokeRepeating("WebControl", 3f, 3f);
+        Taskcount = PattendId;
+        taskNum = 3;
+
+        robotcontrol = GameObject.Find("Robot").GetComponent<RobotControl>();
+    }
+
+    //寻路结束;  
+
+    #region Update
+
+    // Update is called once per frame  
+    void Update()//模式状态切换
+    {
+        UIControl();
+        if (istask==false)
+        {
+            NowPattern = Pattern.Idle;
+            
+            //Robot Idle
+        }
+        else if(istask)
+        {
+            NowPattern = Pattern.Task;
+        }
+        if (RealTimeText.text.Contains("过来"))
+        {
+            robotcontrol.NowGoal = NowRobotGoalPathFinding.User;
+        }
+        
+    }
+
+    void LateUpdate()
+    {
+         if(NowPattern == Pattern.Task)
+         {
+            //Web端启动发送
+            //允许机器人行动
+            if (robotcontrol.taskType == TaskType.TaskIdle && isFristInto)
+            {
+
+                //robotcontrol.bStop = false;
+                RobotControl.bRescanPath = true;
+                robotcontrol.taskType = TaskType.TaskFollow;
+                isFristInto = false;
+            }
+
+         }
+        if(NowPattern != Pattern.Task && isFristInto==false)
+        {
+            NowPattern = Pattern.Idle;
+            isFristInto = true;
+        }
+    }
+    #endregion
+
+
+    #region Correct 任务控制
+
+    void UIControl()
+    {
+        Text[0].text = "训练任务：" + TaskName[PattendId-1];
+        Text[1].text = "任务进度：" + TaskSchedule + " / " + taskNum.ToString();
+
+        if (TaskSchedule >= taskNum)
+        {
+            Taskcount = -1;
+        }
+    }
+
+    void TimeGame()  //计时器
+    {
+        status = 1;
+        count++;
+        Text[2].text = "训练计时：" + count;
+
+        if (ListenerSensor.C2H6O > 500)
+        {
+            Text[3].text = "气味：" + "酒精浓度超标"+ ListenerSensor.C2H6O;
+        }
+        else
+        {
+            Text[3].text = "气味：" + ListenerSensor.C2H6O;
+        }
+    }
+
+    public void OnClickBotton()//结束任务
+    {
+        status = 3;//结束标志
+        WebControl();
+        SceneManager.LoadScene("Task");
+    }
+    #endregion
+
+
+
+    #region Correct web端发送控制
+
+    void WebControl()//正常任务开启时发送数据
+    {
+        x = User.position.x;
+        y = User.position.y;
+        z = User.position.z;
+        degree = User.eulerAngles.x;
+        StartCoroutine(WorkingWeb());
+    }
+    IEnumerator WorkingWeb()    //web反馈
+    {
+        WWWForm form = new WWWForm();
+        form.AddField("status", status); //实验状态
+        form.AddField("x", x.ToString());
+        form.AddField("y", y.ToString());
+        form.AddField("z", z.ToString());
+        form.AddField("degree", degree.ToString()); //使用者头部角度
+        form.AddField("experid", Taskcount);//实验id
+        WWW getData = new WWW(url, form);
+        yield return getData;
+        if (getData.error != null)
+        {
+            //ShowText.text = getData.error;
+        }
+        else
+        {
+            //ShowText.text = getData.text;
+        }
+    }
+    #endregion
+
+}
