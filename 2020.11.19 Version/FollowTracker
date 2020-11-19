@@ -1,0 +1,55 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class FollowTracker : MonoBehaviour
+{
+    #region 变量定义
+    private GameObject Robot, dog;//场景中的追踪器（即现实中机器狗的位置）；虚拟狗
+    private Transform trans_tracker, trans_dog;//追踪器的位置 虚拟狗的位置
+    private Vector3 LastTrackerPos, NowTrackerPos;//上一次的Robot位置；当前的Robot位置； 
+    private Vector3 FreezeY;//使虚拟狗的y轴高度保持在地面的向量
+    private Quaternion rot;//同步虚拟狗和Robot的旋转 
+    private int speed = 300;//虚拟狗同步Robot的速度
+    private float floorHeight;//虚拟狗的y轴高度
+    #endregion
+    void Start () 
+    {
+        dog = GameObject.Find("Dog");
+        Robot = GameObject.Find("RobotCenter");
+        trans_tracker = Robot.GetComponent<Transform>();
+        trans_dog = dog.GetComponent<Transform>();
+       //  LastTrackerPos = trans_tracker.position;//保存当前的Robot位置
+        LastTrackerPos = new Vector3(trans_tracker.position.x, 0, trans_tracker.position.z);
+        floorHeight = trans_dog.position.y;//保存虚拟狗的初始y轴高度
+    }
+	
+	
+	void Update ()
+    {
+        //NowTrackerPos = trans_tracker.position;//保存当前的Robot位置
+        NowTrackerPos = new Vector3(trans_tracker.position.x,0, trans_tracker.position.z);
+        //同步虚拟狗与Robot的一系列参数
+        if (Vector3.Distance(LastTrackerPos, NowTrackerPos) >= 0.015f)//当Robot的位置有明显改变 排除抖动干扰 
+        {
+            
+            //同步虚拟狗和Robot的位置
+            trans_dog.position = Vector3.MoveTowards(trans_dog.position, trans_tracker.position, speed * Time.deltaTime);
+            //同步虚拟狗和Robot的旋转 仅y轴
+            if (trans_tracker.rotation.y > 0)
+                rot = Quaternion.Euler(0, trans_tracker.rotation.w * -180.000f, 0);//(4)
+            else
+                rot = Quaternion.Euler(0, trans_tracker.rotation.w * 180.000f, 0);//(4)使虚拟狗的x z轴保持不变
+            trans_dog.rotation = rot;
+
+            //使虚拟狗的y轴高度保持在地面
+            FreezeY = new Vector3(trans_dog.position.x, floorHeight, trans_dog.position.z);
+            trans_dog.position = FreezeY;
+
+            //修改StartPos的值为NextPos的值
+            LastTrackerPos = NowTrackerPos;
+        }
+    }
+
+
+}
