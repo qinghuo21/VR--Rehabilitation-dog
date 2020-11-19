@@ -1,0 +1,89 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System;
+using System.IO.Ports;
+
+
+public class DJRobotAction
+{
+    private byte serialHead = 0xFF, serialTail = 0xFD;//[1]帧头    [6]帧尾      
+    private static int DataLen = 2, MODE = 1;//[2]数据长度  [3]数据类型-运动
+
+    public static String SetDogForward(SerialPort port, double dist)
+    {
+        double stepNumber = 0;
+        byte[] data = new byte[6];
+        data[0] = 0xFF;//[1]帧头
+        data[1] = 0x02;
+        data[2] = 0x01;
+        data[3] = 0x13;
+        data[4] = (byte)stepNumber;
+        data[5] = 0xFD;
+
+        if (dist == 0)
+        {
+            stepNumber = 0;
+            port.Write(data, 0, 6);
+            return data.ToString();
+        }
+
+
+        double stepLength = 0.03;// 步长3cm
+        // 如果机器狗实际走的过远，则需要增大StepLength的数值，从而使StepNumber减小
+        stepNumber = dist / stepLength;
+
+        if (stepNumber >6)
+        {
+            stepNumber = 6;
+        }
+        data[4] = (byte)stepNumber;
+        port.Write(data, 0, 6);//FF02011303FD
+
+        return data.ToString();
+    }
+
+
+    public static String SetDogRotate(SerialPort port, double angle)
+    {
+        double rotateNumber = 0;
+        int LeftRight = 20;
+        byte[] data = new byte[6];
+        data[0] = 0xFF;//[1]帧头
+        data[1] = 0x02;
+        data[2] = 0x01;
+        data[3] = (byte)LeftRight;
+        data[4] = (byte)rotateNumber;
+        data[5] = 0xFD;
+
+        double rotateAngle = 18.00;// 转弯5步为90度 实际上并没有这么精确
+        rotateNumber = Math.Abs(angle) / rotateAngle;
+
+        if(rotateNumber < 1 || angle == 0)
+        {
+            port.Write(data, 0, 6);
+            return data.ToString();
+        }
+
+        if (angle > 0)
+        {
+            // angle为正 右转 右转是"04"
+            LeftRight = 4;
+        }
+        else
+        {
+            // angle为负 左转 左转是"14"
+            LeftRight = 20;
+        }
+
+        data[3] = (byte)LeftRight;
+        data[4] = (byte)rotateNumber;
+        port.Write(data, 0, 6);
+        return data.ToString();
+
+    }
+
+   
+}
