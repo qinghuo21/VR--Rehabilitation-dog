@@ -1,0 +1,109 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.AI;
+
+
+public class AnimationControl : MonoBehaviour {
+
+    public static float angle;
+    public static double foot;
+
+    private GameObject Dog,Robot;  //物体
+    private Animation Dog_ani;//动画控制器
+    private AudioSource audioSource;//音源
+                                               // Use this for initialization
+    private Vector3 LastTrackerPos, NowTrackerPos;//上一次的Robot位置；当前的Robot位置； 
+    private Text ShowText;//目标文本
+    private string Word = "";
+    private NavMeshAgent agent;//自动寻路锁定的物体  
+    private Transform User;
+    private Vector3[] path;//储存自动寻路起点、拐角、终点的坐标
+    private Vector3 path1;
+    private Transform target;
+    private Quaternion raw_rotation;
+    private double pathlength=0;
+    private float newangle, oldangle;
+    public bool iswine = false;
+    public bool Touch = false,wine=false;
+    public float winetime,Seattime=0;
+
+
+    void Start ()
+    {
+        Dog = GameObject.Find("Dog");
+        Robot = GameObject.Find("RobotCenter");
+        Dog_ani = Dog.GetComponent<Animation>();
+        LastTrackerPos = new Vector3(Robot.transform.position.x, 0, Robot.transform.position.z);
+        ShowText = GameObject.Find("Realtime").GetComponent<Text>();
+        audioSource = GetComponent<AudioSource>();
+        agent = GameObject.Find("Dog").GetComponent<NavMeshAgent>();
+        User = GameObject.Find("User").GetComponent<Transform>();
+    }
+
+	void Update ()
+    {
+        AnimatorControl();
+
+    }
+
+
+
+
+    void AnimatorControl()
+    {
+		NowTrackerPos = new Vector3(Robot.transform.position.x, 0, Robot.transform.position.z);
+        if (Vector3.Distance(LastTrackerPos, NowTrackerPos) >= 0.01f)
+        {
+            if (Vector3.Distance(LastTrackerPos, NowTrackerPos) >= 0.01f)
+            {
+                Dog_ani.Play("Walk");
+                Seattime = 0;
+            }
+            else if (Seattime>5f)
+            {
+                Dog_ani.CrossFade("Idle Seating", 0.5f);
+            }
+            else
+            {
+                Seattime += Time.deltaTime;
+                Dog_ani.CrossFade("Idle", 0.5f);
+            }
+            //使虚拟狗的y轴高度保持在地面
+
+            LastTrackerPos = NowTrackerPos;
+        }
+        else if (Seattime > 5f)
+        {
+            Dog_ani.CrossFade("Idle Seating", 0.5f);
+        }
+        else
+        {
+            Seattime += Time.deltaTime;
+            Dog_ani.CrossFade("Idle", 0.5f);
+        }
+        if (ListenerSensor.C2H6O > 500 || wine)
+        {
+            iswine = true;
+
+        }
+		
+        if (ListenerSensor.isTouched == 1 || Touch)  //触摸反馈
+        {
+            //audioSource.Play();
+            Dog_ani.CrossFade("Howling",0.5f);
+        }
+
+
+
+        if (iswine)                    //对酒的反应
+        {
+            Dog_ani.Play("Attack Two Paw");
+            audioSource.Play();
+            iswine = false;
+        }
+        
+    }
+
+}
